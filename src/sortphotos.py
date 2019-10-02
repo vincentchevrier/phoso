@@ -13,7 +13,7 @@ import filecmp
 from datetime import datetime 
 import re
 import logging
-import cStringIO
+import io
 
 
 
@@ -25,7 +25,7 @@ def purge_string(s):
     return ''.join([x for x in s if x in allowed])
 
 def cmd_exif(tag, fname, command="/opt/bin/exif"):
-    err = cStringIO.StringIO()
+    err = io.StringIO()
     out = subprocess.check_output([command,'-m','-t',tag,fname], stderr=err).strip()
     err_val = err.get_value()
     if err_val:
@@ -248,7 +248,7 @@ def sortphotos(src_dir, dest_dir, extensions, sort_format, move_files, remove_du
                 logging.info('{}, {}, copied, {}, {}'.format(src_file, dest_file, date, found_model))
                 shutil.copy2(src_file, dest_file)
 
-    print
+    print()
 
 if __name__ == '__main__':
 
