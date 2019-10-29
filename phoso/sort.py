@@ -20,7 +20,7 @@ from .utils import (del_dirs, general_case_exif, match_files, move_to_hold,
 
 
 def sortphotos(src_dir: str, dest_dir: str, extensions: list, sort_format: str, move_files: bool, remove_duplicates: bool,
-               ignore_exif: bool, rename: Callable[str, object, str], exif_path: str = '/opt/bin/exif', hold_dir: str = None):
+               ignore_exif: bool, rename: Callable[[str, object, str],None], exif_path: str = '/opt/bin/exif', hold_dir: str = None):
     '''
 
     Args:
