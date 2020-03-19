@@ -1,3 +1,4 @@
 outs
 .vscode
 venv
+__pycache__
