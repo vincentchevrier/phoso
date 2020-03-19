@@ -19,15 +19,17 @@ def main():
     args = parser.parse_args()
 
     # SETUP LOGGING
-    now = datetime.now().strftime('%Y%m%d-%H%M%S')
-    log_file = "log_debug_{}.log".format(now)
-    logging.basicConfig(filename=os.path.join('.', log_file),
-                        level=logging.DEBUG, format='%(asctime)s %(message)s')
+    
+    logging.basicConfig(level=os.environ.get("LOGLEVEL", "DEBUG"))
+    # now = datetime.now().strftime('%Y%m%d-%H%M%S')
+    # log_file = "log_debug_{}.log".format(now)
+    # logging.basicConfig(filename=os.path.join('.', log_file),
+    #                     level=logging.DEBUG, format='%(asctime)s %(message)s')
 
-    # setup logging from stderr
-    error_log_file = "log_error_{}.log".format(now)
-    fo = open(os.path.join('.', error_log_file), 'w')
-    sys.stderr = fo
+    # # setup logging from stderr
+    # error_log_file = "log_error_{}.log".format(now)
+    # fo = open(os.path.join('.', error_log_file), 'w')
+    # sys.stderr = fo
 
     cull(args.root, args.hash_list)
 

@@ -5,27 +5,29 @@ import os.path
 import sys
 import logging
 import json
+from json.decoder import JSONDecodeError
 import copy
 
-logging.basicConfig(format='%(asctime)s %(message)s',
-                    filename='cull.info.log', level=logging.INFO)
-
+LOGGER = logging.getLogger(__name__)
 
 def read_hash(path='~/.phoso/hashes.json'):
     # Read existing hashes from hash_list
-    sys.stdout.write('Reading %s, ' % hash_list)
-    with open(path, 'r') as f:
-        hashpairs = json.load(f)
+    LOGGER.info('Reading %s', path)
+    try:
+        with open(path, 'r') as f:
+            hashpairs = json.load(f)
+    except (FileNotFoundError, JSONDecodeError):
+        hashpairs = []
 
     return hashpairs
 
 
 def write_hash(hashes, path='~/.phoso/hashes.json'):
     with open(path, 'w') as fobj:
-        json.dump(fobj, hashes)
+        json.dump(hashes, fobj, indent=4)
 
 
-def hash_tree(base_dir, fsize_max=500.*1e6, verbose=True):
+def hash_tree(base_dir, fsize_max=500.*1e6, verbose=True, already_hashed=[]):
     """
     Given a base directory traverse the whole tree and calc all the sha1 hash
 
@@ -35,6 +37,7 @@ def hash_tree(base_dir, fsize_max=500.*1e6, verbose=True):
     report_every = 50
     count = 0
     hash_pairs = []
+    abspaths = [x[0] for x in already_hashed]
     for d, subdirs, files in os.walk(base_dir):
         for fname in files:
             abspath = os.path.abspath(os.path.join(d, fname))
@@ -42,18 +45,22 @@ def hash_tree(base_dir, fsize_max=500.*1e6, verbose=True):
             fsize = os.path.getsize(abspath)
             fhash = None
 
-            if fsize < fsize_max:
-                with open(abspath, 'rb') as fobj:
-                    fhash = sha1(fobj.read()).hexdigest()
-                if verbose:
-                    if count % report_every == 0:
-                        sys.stdout.write("\rHashed {} files".format(count))
-            else:
-                if verbose:
-                    sys.stdout.write(
-                        '\nSkipped file {} due to size'.format(abspath))
+            if abspath not in abspaths:
+                if fsize < fsize_max:
+                    with open(abspath, 'rb') as fobj:
+                        fhash = sha1(fobj.read()).hexdigest()
+                    if verbose:
+                        if count % report_every == 0:
+                            LOGGER.debug("Hashing file %s", count+1)
+                else:
+                    if verbose:
+                        LOGGER.info(
+                            'Skipped file %s due to size', abspath)
 
-            hash_pairs.append((abspath, ctime, fsize, fhash))
+                hash_pairs.append((abspath, ctime, fsize, fhash))
+                count += 1
+
+    LOGGER.info("Hashed %s files", count)
     return hash_pairs
 
 
@@ -91,8 +98,10 @@ def purge_duplicates(base_dir):
     hashes = hash_tree(base_dir)
     hashes, duplicates = extract_duplicates(hashes)
 
-    for hash_tuple in hashes:
+    for hash_tuple in duplicates:
         os.remove(hash_tuple[0])
+    
+    return hashes, duplicates
 
 
 def common_hashes(source_hashes, destination_hashes):
@@ -121,11 +130,8 @@ def common_hashes(source_hashes, destination_hashes):
 # if __name__ == "__main__":
 
 
-root = '/share/photo_archive'
-hash_list = 'hash_list.txt'
 
-
-def cull(roo0:str, hash_list_path: str, dry_run:bool=False):
+def cull(root:str, hash_list_path: str, dry_run:bool=False):
     '''
     Given root directory and a file containing a list of all hashes
     - recurse through the tree and create an updated list of file hashes
@@ -140,107 +146,20 @@ def cull(roo0:str, hash_list_path: str, dry_run:bool=False):
 
     '''
 
-    logging.info('Hashing files')
-    if True:
-        hashpairs = read_hash(hash_list)
-        # Hash all new paths and write as you go
-        abspaths = [x[1] for x in hashpairs]
-        sys.stdout.write('Hashing files\n')
-        cnt = 0
-        cnt_old = 0
-        cnt_new = 0
-        freq = 50
-        cnt_max = 1000000
-        stop_hashing = False
-        fsize_max = 20*1e6  # 20 MB
-        with open(hash_list, 'w') as f:
-            for d, subdirs, files in os.walk(root):
-                for fname in files:
-                    cnt += 1
-                    abspath = os.path.abspath(os.path.join(d, fname))
-                    if abspath not in abspaths:
-                        ctime = os.path.getctime(abspath)
-                        fsize = os.path.getsize(abspath)
-                        fhash = None
-                        if fsize < fsize_max:
-                            fhash = sha1(
-                                open(abspath, 'rb').read()).hexdigest()
-                        f.write('%s\t%s\t%s\t%s\n' %
-                                (abspath, ctime, fsize, fhash))
-                        # hashpairs.append((ctime, abspath, fhash))
-                        cnt_new += 1
-                    else:
-                        cnt_old += 1
+    LOGGER.info('Hashing files')
 
-                    if cnt % freq == 0:
-                        sys.stdout.write('\r%7d: %7d old, %7d new.' %
-                                         (cnt, cnt_old, cnt_new))
-                        sys.stdout.flush()
-                    if cnt >= cnt_max:
-                        stop_hashing = True
+    hashpairs = read_hash(hash_list_path)
+    new_hashpairs = hash_tree(root, already_hashed=hashpairs)
 
-                    if stop_hashing:
-                        break
-                if stop_hashing:
-                    break
+    hashpairs = sorted(hashpairs + new_hashpairs, key=lambda x: x[0])
 
-        sys.stdout.write('\n%s files hashed, %s old, %s new.\n' %
-                         (cnt, cnt_old, cnt_new))
-        logging.info('%s files hashed, %s old, %s new.' %
-                     (cnt, cnt_old, cnt_new))
+    hashpairs, duplicates = extract_duplicates(hashpairs)
 
-    hashpairs = read_hash(hash_list)
-    hashpairs = sorted(hashpairs, key=lambda x: x[1])
+    if not dry_run:
+        for hash_tuple in duplicates:
+            LOGGER.debug('Deleting duplicate file %s', hash_tuple[0])
+            os.remove(hash_tuple[0])
 
-    # Look for duplicates and create list of duplicates called dupe
-    n = len(hashpairs)
-    dupes = []
-    duplicates_out = []
-    sys.stdout.write('\nComparing for duplicates\n')
-    logging.info('Comparing for duplicates')
-    freq = 50
-    for i, (p1, t1, s1, h1) in enumerate(hashpairs):
-        if i % freq == 0:
-            sys.stdout.write('\r%d' % i)
-        for j in range(i+1, n):
-            p2, t2, s2, h2 = hashpairs[j]
-            if h1 is None:
-                if s1 == s2:
-                    dupes.append(j)
-                    duplicates_out.append(copy.deepcopy(hashpairs[j]))
-            else:
-                if h2 == h1:
-                    dupes.append(j)
-                    duplicates_out.append(copy.deepcopy(hashpairs[j]))
-
-    # Set commands removes duplicates identified multiple times
-    dupes = sorted(list(set(dupes)), reverse=True)
-
-    # Delete all the duplicates and pop them from the hashlist
-    sys.stdout.write('\nDeleting duplicates\n')
-    logging.info('Deleting duplicates')
-    # answer = raw_input('Are you sure you want to delete %s duplicates? (y/n)\n' %len(dupes))
-    # if answer == 'y':
-    if True:
-        cnt = 1
-        for i in dupes:
-            t, p, h = hashpairs.pop(i)
-            sys.stdout.write('\r%i' % cnt)
-            sys.stdout.flush()
-            if not dry_run:
-                print(f'Deleting: {p}')
-                logging.info(f'Deleting: {p}')
-                os.remove(p)
-            if i % 100 == 0:
-                logging.info('Deleting %s: %s' % (cnt, p))
-            cnt += 1
-
-    sys.stdout.write('\n\n')
-
-    # Write new hashlist to disk
-    with open('hash_list.txt','w') as f:
-        for tup in hashpairs:
-            f.write('%s\t%s\t%s\n' %tup)
+    write_hash(hashpairs, hash_list_path)
     
-    return duplicates_out
     
