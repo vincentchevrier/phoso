@@ -100,6 +100,9 @@ def sortphotos(src_dir: str, dest_dir: str, extensions: list, sort_format: str, 
             date, model, date_fail = general_case_exif(
                 src_file, exif_path, ignore_exif=ignore_exif)
 
+        # Get rid of spaces or special characters in model
+        model = purge_string(model)
+        
         # create folder structure
         dir_structure = date.strftime(sort_format)
         dirs = dir_structure.split('/')
