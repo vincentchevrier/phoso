@@ -13,6 +13,17 @@ def purge_string(s):
     allowed = '.0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz'
     return ''.join([x for x in s if x in allowed])
 
+def cmd_exiftool(tag, fname, command):
+    err = io.StringIO()
+    out = subprocess.check_output([command,'-s','-S',f'-{tag}',fname]).decode().strip()
+    err_val = err.getvalue()
+    if err_val:
+        msg = '{}: EXIF failed with error: {}'.format(fname, err_val)
+        sys.stderr.write(msg+'\n')
+        raise ValueError(msg)
+    return out
+
+
 def cmd_exif(tag, fname, command="/opt/bin/exif"):
     err = io.StringIO()
     out = subprocess.check_output([command,'-m','-t',tag,fname], stderr=err).strip()
@@ -51,10 +62,18 @@ def general_case_exif(src_file, exif_path, ignore_exif=False):
 
     else:
         # look for date in EXIF data
-        date_tags = ['Date and Time (original)', 'Date and Time (digitized)', 'Date and Time']
+        if 'exiftool' in exif_path:
+            # use exiftool syntax (windows)
+            date_tags = ['DateTimeCreated', 'DateTimeOriginal']
+            exif_function = cmd_exiftool
+        else:
+            # assume standard linux exif
+            date_tags = ['Date and Time (original)', 'Date and Time (digitized)', 'Date and Time']
+            exif_function = cmd_exif
+
         for tag in date_tags:
             try:
-                date_str = cmd_exif(tag, src_file, command=exif_path)
+                date_str = exif_function(tag, src_file, exif_path)
                 date = datetime.strptime(date_str,"%Y:%m:%d %H:%M:%S")
                 break
             except:
@@ -67,7 +86,7 @@ def general_case_exif(src_file, exif_path, ignore_exif=False):
 
         # look for model in EXIF data
         try:
-            model = cmd_exif('Model', src_file, command=exif_path)
+            model = exif_function('Model', src_file, exif_path)
         except:
             model = None
             
