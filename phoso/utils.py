@@ -64,7 +64,7 @@ def general_case_exif(src_file, exif_path, ignore_exif=False):
         # look for date in EXIF data
         if 'exiftool' in exif_path:
             # use exiftool syntax (windows)
-            date_tags = ['DateTimeCreated', 'DateTimeOriginal']
+            date_tags = ['DateTimeCreated', 'DateTimeOriginal', 'CreateDate']
             exif_function = cmd_exiftool
         else:
             # assume standard linux exif
