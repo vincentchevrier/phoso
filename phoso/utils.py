@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+from subprocess import PIPE
 import sys
 from datetime import datetime
 
@@ -11,26 +12,31 @@ from datetime import datetime
 
 def purge_string(s):
     allowed = '.0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz'
-    return ''.join([x for x in s if x in allowed])
+    if s:
+        return ''.join([x for x in s if x in allowed])
+    else:
+        return ''
+
 
 def cmd_exiftool(tag, fname, command):
-    err = io.StringIO()
-    out = subprocess.check_output([command,'-s','-S',f'-{tag}',fname]).decode().strip()
-    err_val = err.getvalue()
+    sp = subprocess.run([command,'-s','-S',f'-{tag}',fname], stdout=PIPE, stderr=PIPE)
+    out = sp.stdout.decode().strip()
+    err_val = sp.stderr.decode().strip()
     if err_val:
         msg = '{}: EXIF failed with error: {}'.format(fname, err_val)
-        sys.stderr.write(msg+'\n')
+        logging.debug(msg)
         raise ValueError(msg)
     return out
 
 
 def cmd_exif(tag, fname, command="/opt/bin/exif"):
-    err = io.StringIO()
-    out = subprocess.check_output([command,'-m','-t',tag,fname], stderr=err).strip()
-    err_val = err.getvalue()
+    # out = subprocess.check_output([command,'-m','-t',tag,fname]).decode().strip()
+    sp = subprocess.run([command,'-m','-t',tag,fname], stdout=PIPE, stderr=PIPE)
+    out = sp.stdout.decode().strip()
+    err_val = sp.stderr.decode().strip()
     if err_val:
         msg = '{}: EXIF failed with error: {}'.format(fname, err_val)
-        sys.stderr.write(msg+'\n')
+        logging.debug(msg)
         raise ValueError(msg)
     return out
 
@@ -68,7 +74,7 @@ def general_case_exif(src_file, exif_path, ignore_exif=False):
             exif_function = cmd_exiftool
         else:
             # assume standard linux exif
-            date_tags = ['Date and Time (original)', 'Date and Time (digitized)', 'Date and Time']
+            date_tags = ['Date and Time (Original)', 'Date and Time (Digitized)', 'Date and Time']
             exif_function = cmd_exif
 
         for tag in date_tags:

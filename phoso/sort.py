@@ -57,8 +57,8 @@ def sortphotos(src_dir: str, dest_dir: str, extensions: list, sort_format: str, 
         r'.*([12][890][0-9]{6}_[012][0-9][0-6][0-9][0-6][0-9])\.mp4')
     r_gen_rw2 = re.compile(r'.+\.rw2')
 
-    for src_file in matched_files:
 
+    for src_file in matched_files:
         # update progress bar
         numdots = int(20.0*(idx+1)/num_files)
         sys.stdout.write('\r')
