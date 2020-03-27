@@ -1,10 +1,8 @@
-import io
+
 import logging
 import os
 import re
 import shutil
-import subprocess
-from subprocess import PIPE
 import sys
 from datetime import datetime
 
@@ -17,28 +15,6 @@ def purge_string(s):
     else:
         return ''
 
-
-def cmd_exiftool(tag, fname, command):
-    sp = subprocess.run([command,'-s','-S',f'-{tag}',fname], stdout=PIPE, stderr=PIPE)
-    out = sp.stdout.decode().strip()
-    err_val = sp.stderr.decode().strip()
-    if err_val:
-        msg = '{}: EXIF failed with error: {}'.format(fname, err_val)
-        logging.debug(msg)
-        raise ValueError(msg)
-    return out
-
-
-def cmd_exif(tag, fname, command="/opt/bin/exif"):
-    # out = subprocess.check_output([command,'-m','-t',tag,fname]).decode().strip()
-    sp = subprocess.run([command,'-m','-t',tag,fname], stdout=PIPE, stderr=PIPE)
-    out = sp.stdout.decode().strip()
-    err_val = sp.stderr.decode().strip()
-    if err_val:
-        msg = '{}: EXIF failed with error: {}'.format(fname, err_val)
-        logging.debug(msg)
-        raise ValueError(msg)
-    return out
 
 def del_dirs(src_dir,force=False, match=None):
     for dirpath, _, _ in os.walk(src_dir, topdown=False):  # Listing the files
@@ -57,8 +33,9 @@ def del_dirs(src_dir,force=False, match=None):
                 logging.info('rmdir: {}'.format(dirpath))
         except OSError as ex:
             sys.stderr.write(str(ex))
-            
-def general_case_exif(src_file, exif_path, ignore_exif=False):
+
+
+def general_case_exif(src_file, et, ignore_exif=False):
     # use file time stamp if no valid EXIF dataa
     date = None
     date_fail = False
@@ -67,20 +44,12 @@ def general_case_exif(src_file, exif_path, ignore_exif=False):
         model = None
 
     else:
-        # look for date in EXIF data
-        if 'exiftool' in exif_path:
-            # use exiftool syntax (windows)
-            date_tags = ['DateTimeCreated', 'DateTimeOriginal', 'CreateDate']
-            exif_function = cmd_exiftool
-        else:
-            # assume standard linux exif
-            date_tags = ['Date and Time (Original)', 'Date and Time (Digitized)', 'Date and Time']
-            exif_function = cmd_exif
-
+        date_tags = ['EXIF:DateTimeCreated', 'EXIF:DateTimeOriginal', 'EXIF:CreateDate']
+        tag_dict = et.get_tags(['EXIF:Model','DateTimeCreated', 'DateTimeOriginal', 'CreateDate'], src_file)
+        model = tag_dict.get('EXIF:Model', None)
         for tag in date_tags:
             try:
-                date_str = exif_function(tag, src_file, exif_path)
-                date = datetime.strptime(date_str,"%Y:%m:%d %H:%M:%S")
+                date = datetime.strptime(tag_dict[tag],"%Y:%m:%d %H:%M:%S")
                 break
             except:
                 pass
@@ -88,13 +57,6 @@ def general_case_exif(src_file, exif_path, ignore_exif=False):
         if date is None:
             date = datetime.fromtimestamp(os.path.getmtime(src_file))
             date_fail = True
-            
-
-        # look for model in EXIF data
-        try:
-            model = exif_function('Model', src_file, exif_path)
-        except:
-            model = None
             
     return date, model, date_fail
 

@@ -5,22 +5,21 @@ sortphotos.py
 """
 
 import filecmp
-import fnmatch
-import io
 import logging
 import os
 import re
 import shutil
-import subprocess
 import sys
 from datetime import datetime
 from typing import Callable
 from .utils import (del_dirs, general_case_exif, match_files, move_to_hold,
                     purge_string, rename_file)
+import exiftool
+
 
 
 def sortphotos(src_dir: str, dest_dir: str, extensions: list, sort_format: str, move_files: bool, remove_duplicates: bool,
-               ignore_exif: bool, rename: Callable[[str, object, str],None], exif_path: str = '/opt/bin/exif', hold_dir: str = None):
+               ignore_exif: bool, rename: Callable[[str, object, str],None], exif_path: str = None, hold_dir: str = None):
     '''
 
     Args:
@@ -32,7 +31,7 @@ def sortphotos(src_dir: str, dest_dir: str, extensions: list, sort_format: str, 
         remove_duplicates: True: redundant files are deleted, False redundant files are kept and renamed. File comparisons are done with `filecmp.cmp`
         ignore_exif: True: Do not attempt to use exif information of file. False: use exif information for camera model and datetime
         rename: Function for renaming files. Arguments given to the function are the source file, the datetime, and the camera model
-        exif_path: path to the local exif program. Defaults to '/opt/bin/exif'. Will be called using subprocess
+        exif_path: path to the local exif program. Defaults to None. Will be passed to PyExifTool
         hold_dir: default None. If not none, should be a directory path where identical files are moved to instead of deleted
 
 
@@ -58,115 +57,116 @@ def sortphotos(src_dir: str, dest_dir: str, extensions: list, sort_format: str, 
     r_gen_rw2 = re.compile(r'.+\.rw2')
 
 
-    for src_file in matched_files:
-        # update progress bar
-        numdots = int(20.0*(idx+1)/num_files)
-        sys.stdout.write('\r')
-        sys.stdout.write('[%-20s] %d of %d ' % ('='*numdots, idx+1, num_files))
-        sys.stdout.flush()
+    with exiftool.ExifTool(executable_=exif_path) as et:
+        for src_file in matched_files:
+            # update progress bar
+            numdots = int(20.0*(idx+1)/num_files)
+            sys.stdout.write('\r')
+            sys.stdout.write('[%-20s] %d of %d ' % ('='*numdots, idx+1, num_files))
+            sys.stdout.flush()
 
-        idx += 1
-        date_fail = False
-        date = None
+            idx += 1
+            date_fail = False
+            date = None
 
-        # Special cases
-        src_basename = os.path.basename(src_file)
-        if r_wp_mp4.match(src_basename):
-            mo = r_wp_mp4.match(src_basename)
-            date = datetime.strptime(mo.groups()[0], '%Y%m%d')
-            model = 'WP'
-        elif r_gen_vid.match(src_basename):
-            mo = r_gen_vid.match(src_basename)
-            date = datetime.strptime(mo.groups()[1], '%Y%m%d_%H%M%S')
-            model = 'video'
-        elif r_gen_img.match(src_basename):
-            date, model, date_fail = general_case_exif(
-                src_file, exif_path, ignore_exif=ignore_exif)
-            if model is None or date_fail:
-                mo = r_gen_img.match(src_basename)
+            # Special cases
+            src_basename = os.path.basename(src_file)
+            if r_wp_mp4.match(src_basename):
+                mo = r_wp_mp4.match(src_basename)
+                date = datetime.strptime(mo.groups()[0], '%Y%m%d')
+                model = 'WP'
+            elif r_gen_vid.match(src_basename):
+                mo = r_gen_vid.match(src_basename)
+                date = datetime.strptime(mo.groups()[1], '%Y%m%d_%H%M%S')
+                model = 'video'
+            elif r_gen_img.match(src_basename):
+                date, model, date_fail = general_case_exif(
+                    src_file, exif_path, ignore_exif=ignore_exif)
+                if model is None or date_fail:
+                    mo = r_gen_img.match(src_basename)
+                    date = datetime.strptime(mo.groups()[0], '%Y%m%d_%H%M%S')
+                    model = 'img' if model is None else model
+            elif r_gen_mp4.match(src_basename):
+                mo = r_gen_mp4.match(src_basename)
                 date = datetime.strptime(mo.groups()[0], '%Y%m%d_%H%M%S')
-                model = 'img' if model is None else model
-        elif r_gen_mp4.match(src_basename):
-            mo = r_gen_mp4.match(src_basename)
-            date = datetime.strptime(mo.groups()[0], '%Y%m%d_%H%M%S')
-            model = 'video'
-        elif r_gen_rw2.match(src_basename):
-            mo = r_gen_rw2.match(src_basename)
-            date = date = datetime.fromtimestamp(os.path.getmtime(src_file))
-            model = 'raw'
+                model = 'video'
+            elif r_gen_rw2.match(src_basename):
+                mo = r_gen_rw2.match(src_basename)
+                date = date = datetime.fromtimestamp(os.path.getmtime(src_file))
+                model = 'raw'
 
-        # General case
-        else:
-            date, model, date_fail = general_case_exif(
-                src_file, exif_path, ignore_exif=ignore_exif)
+            # General case
+            else:
+                date, model, date_fail = general_case_exif(
+                    src_file, et, ignore_exif=ignore_exif)
 
-        # Get rid of spaces or special characters in model
-        model = purge_string(model)
-        
-        # create folder structure
-        dir_structure = date.strftime(sort_format)
-        dirs = dir_structure.split('/')
-        dest_file = dest_dir
-        for thedir in dirs:
-            dest_file = os.path.join(dest_file, thedir)
-            if not os.path.exists(dest_file):
-                os.makedirs(dest_file)
+            # Get rid of spaces or special characters in model
+            model = purge_string(model)
+            
+            # create folder structure
+            dir_structure = date.strftime(sort_format)
+            dirs = dir_structure.split('/')
+            dest_file = dest_dir
+            for thedir in dirs:
+                dest_file = os.path.join(dest_file, thedir)
+                if not os.path.exists(dest_file):
+                    os.makedirs(dest_file)
 
-        # setup destination file
-        found_model = model
-        if rename and not date_fail:
-            new_fname = rename_file(src_file, date, model)
-            dest_file = os.path.join(dest_file, new_fname)
-        else:
-            dest_file = os.path.join(dest_file, os.path.basename(src_file))
-        root, ext = os.path.splitext(dest_file)
-        # force extension to be lower case
-        ext = ext.lower()
+            # setup destination file
+            found_model = model
+            if rename and not date_fail:
+                new_fname = rename_file(src_file, date, model)
+                dest_file = os.path.join(dest_file, new_fname)
+            else:
+                dest_file = os.path.join(dest_file, os.path.basename(src_file))
+            root, ext = os.path.splitext(dest_file)
+            # force extension to be lower case
+            ext = ext.lower()
 
-        # check for collisions
-        append = 1
-        file_is_identical = False
+            # check for collisions
+            append = 1
+            file_is_identical = False
 
-        while True:
-            if os.path.isfile(dest_file):  # check for existing name
-                # check for identical files
-                if remove_duplicates and filecmp.cmp(src_file, dest_file):
-                    file_is_identical = True
+            while True:
+                if os.path.isfile(dest_file):  # check for existing name
+                    # check for identical files
+                    if remove_duplicates and filecmp.cmp(src_file, dest_file):
+                        file_is_identical = True
+                        break
+
+                    else:  # name is same, but file is different
+                        dest_file = root + '_' + str(append) + ext
+                        append += 1
+
+                else:
                     break
 
-                else:  # name is same, but file is different
-                    dest_file = root + '_' + str(append) + ext
-                    append += 1
+            # finally move or copy the file
+            if move_files:
+                if file_is_identical:
+                    if hold_dir is not None:
+                        hold_file = move_to_hold(src_dir, hold_dir, src_file)
+                        logging.info('{}, {}, hold moved as it is identical, {}, {}'.format(
+                            src_file, hold_file, date, found_model))
+                    else:
+                        logging.info('{}, {}, not moved as it is identical, {}, {}'.format(
+                            src_file, dest_file, date, found_model))
+                    continue  # if file is same, we just ignore it
 
-            else:
-                break
-
-        # finally move or copy the file
-        if move_files:
-            if file_is_identical:
-                if hold_dir is not None:
-                    hold_file = move_to_hold(src_dir, hold_dir, src_file)
-                    logging.info('{}, {}, hold moved as it is identical, {}, {}'.format(
-                        src_file, hold_file, date, found_model))
                 else:
-                    logging.info('{}, {}, not moved as it is identical, {}, {}'.format(
+                    logging.info('{}, {}, moved to, {}, {}'.format(
                         src_file, dest_file, date, found_model))
-                continue  # if file is same, we just ignore it
-
+                    shutil.move(src_file, dest_file)
             else:
-                logging.info('{}, {}, moved to, {}, {}'.format(
-                    src_file, dest_file, date, found_model))
-                shutil.move(src_file, dest_file)
-        else:
-            if file_is_identical:
-                logging.info('{}, {}, not copied as it is identical, {}, {}'.format(
-                    src_file, dest_file, date, found_model))
-                # if file is same, we just ignore it (for copy option)
-                continue
-            else:
-                logging.info('{}, {}, copied, {}, {}'.format(
-                    src_file, dest_file, date, found_model))
-                shutil.copy2(src_file, dest_file)
+                if file_is_identical:
+                    logging.info('{}, {}, not copied as it is identical, {}, {}'.format(
+                        src_file, dest_file, date, found_model))
+                    # if file is same, we just ignore it (for copy option)
+                    continue
+                else:
+                    logging.info('{}, {}, copied, {}, {}'.format(
+                        src_file, dest_file, date, found_model))
+                    shutil.copy2(src_file, dest_file)
 
     # Print a newline to move below the progress bar
     print()
