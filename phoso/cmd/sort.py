@@ -32,7 +32,7 @@ The default is '%%Y/%%m', which separates by year then month (e.g., 2012/11).")
                         help='If file is a duplicate keep it anyway (after renaming).')
     parser.add_argument('--extensions', type=str, nargs='+',
                         default=['jpg', 'jpeg', 'tiff', 'arw', 'avi',
-                                 'mov', 'mp4', 'mts', 'mkv', 'rw2', 'png', '3gp'],
+                                 'mov', 'mp4', 'mts', 'mkv', 'rw2', 'png', '3gp', 'm4v'],
                         help='file types to sort')
     parser.add_argument('--ignore-exif', action='store_true',
                         help='always use file time stamp even if EXIF data exists')
